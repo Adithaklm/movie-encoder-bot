@@ -7,9 +7,21 @@ db = client[DATABASE_NAME]
 users = db.users
 jobs = db.jobs
 
+DEFAULT_SETTINGS = {
+    "video_codec": "libx264",
+    "crf": "23",
+    "preset": "veryfast",
+    "video_bitrate": "",
+    "pixel_format": "yuv420p",
+    "audio_codec": "aac",
+    "audio_bitrate": "128k",
+    "audio_channels": "",
+    "video_filter": "",
+    "output_format": "mkv",
+    "extra_args": "",
+}
+
 async def init_db():
-    # Partial unique index ignores legacy documents that do not contain user_id.
-    # This prevents E11000 duplicate-key errors from old/null records.
     await users.create_index(
         "user_id",
         unique=True,
@@ -24,10 +36,24 @@ async def upsert_user(user_id: int, username: str | None, first_name: str | None
         {"user_id": user_id},
         {
             "$set": {"username": username, "first_name": first_name},
-            "$setOnInsert": {"joined_at": datetime.now(timezone.utc)},
+            "$setOnInsert": {"joined_at": datetime.now(timezone.utc), "settings": DEFAULT_SETTINGS.copy()},
         },
         upsert=True,
     )
+
+async def get_settings(user_id: int):
+    doc = await users.find_one({"user_id": user_id}, {"settings": 1})
+    settings = DEFAULT_SETTINGS.copy()
+    if doc and isinstance(doc.get("settings"), dict):
+        settings.update(doc["settings"])
+    return settings
+
+async def update_settings(user_id: int, **settings):
+    fields = {f"settings.{key}": value for key, value in settings.items()}
+    await users.update_one({"user_id": user_id}, {"$set": fields}, upsert=True)
+
+async def reset_settings(user_id: int):
+    await users.update_one({"user_id": user_id}, {"$set": {"settings": DEFAULT_SETTINGS.copy()}}, upsert=True)
 
 async def create_job(user_id: int, input_name: str, input_size: int):
     doc = {
