@@ -19,6 +19,9 @@ log = logging.getLogger("movie-encoder")
 Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
 
+# Persist the bot's Telegram authorization in an environment variable. This prevents
+# Telegram's ImportBotAuthorizationRequest from running on every ephemeral Koyeb restart.
+BOT_SESSION_STRING = os.environ.get("BOT_SESSION_STRING", "").strip()
 if BOT_SESSION_STRING:
     bot = TelegramClient(StringSession(BOT_SESSION_STRING), API_ID, API_HASH)
 else:
@@ -198,7 +201,7 @@ async def main():
         else:
             await bot.start(bot_token=BOT_TOKEN)
     except FloodWaitError as exc:
-        log.error("Telegram bot authorization is rate-limited for %s seconds. Configure BOT_SESSION_STRING after the cooldown to prevent repeated bot authorization on Koyeb restarts.", exc.seconds)
+        log.error("Telegram bot authorization is rate-limited for %s seconds. Configure BOT_SESSION_STRING after the cooldown to prevent repeated authorization on Koyeb restarts.", exc.seconds)
         await health_runner.cleanup()
         raise
     if user_client is not None: await user_client.start()
