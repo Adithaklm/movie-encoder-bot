@@ -1,3 +1,5 @@
 telethon>=1.42,<2
 motor>=3.7,<4
 pymongo>=4.14,<5
+imageio-ffmpeg>=0.6,<1
+aiohttp>=3.12,<4
