@@ -1,11 +1,10 @@
 import asyncio
 import re
+import shlex
 import time
 from pathlib import Path
 
 import imageio_ffmpeg
-
-from config import VIDEO_CODEC, AUDIO_CODEC, CRF, PRESET, AUDIO_BITRATE
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -44,15 +43,43 @@ async def get_duration(input_path: str) -> float:
     return int(h) * 3600 + int(m) * 60 + float(s)
 
 
-async def encode_file(input_path: str, output_path: str, progress_callback=None):
+async def encode_file(input_path: str, output_path: str, settings: dict, progress_callback=None):
     duration = await get_duration(input_path)
+    video_codec = settings.get("video_codec", "libx264")
+    crf = settings.get("crf", "23")
+    preset = settings.get("preset", "veryfast")
+    video_bitrate = settings.get("video_bitrate", "")
+    pixel_format = settings.get("pixel_format", "yuv420p")
+    audio_codec = settings.get("audio_codec", "aac")
+    audio_bitrate = settings.get("audio_bitrate", "128k")
+    audio_channels = settings.get("audio_channels", "")
+    video_filter = settings.get("video_filter", "")
+    extra_args = settings.get("extra_args", "")
+
     cmd = [
         FFMPEG, "-y", "-i", input_path,
         "-map", "0:v:0", "-map", "0:a?",
-        "-c:v", VIDEO_CODEC, "-preset", PRESET, "-crf", CRF,
-        "-c:a", AUDIO_CODEC, "-b:a", AUDIO_BITRATE,
-        "-progress", "pipe:1", "-nostats", output_path,
+        "-c:v", video_codec,
     ]
+    if video_bitrate:
+        cmd += ["-b:v", video_bitrate]
+    else:
+        cmd += ["-crf", crf]
+    if preset:
+        cmd += ["-preset", preset]
+    if pixel_format:
+        cmd += ["-pix_fmt", pixel_format]
+    if video_filter:
+        cmd += ["-vf", video_filter]
+    cmd += ["-c:a", audio_codec]
+    if audio_bitrate:
+        cmd += ["-b:a", audio_bitrate]
+    if audio_channels:
+        cmd += ["-ac", audio_channels]
+    if extra_args:
+        cmd += shlex.split(extra_args)
+    cmd += ["-progress", "pipe:1", "-nostats", output_path]
+
     process = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
