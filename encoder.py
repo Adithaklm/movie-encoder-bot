@@ -47,7 +47,7 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
     duration = await get_duration(input_path)
     video_codec = settings.get("video_codec", "libx265")
     crf = settings.get("crf", "23")
-    preset = settings.get("preset", "medium")
+    preset = settings.get("preset", "ultrafast")
     video_bitrate = settings.get("video_bitrate", "")
     pixel_format = settings.get("pixel_format", "yuv420p")
     audio_codec = settings.get("audio_codec", "aac")
