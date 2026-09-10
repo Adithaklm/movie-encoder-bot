@@ -19,8 +19,6 @@ log = logging.getLogger("movie-encoder")
 Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
 
-# Persist the bot's Telegram authorization in an environment variable. This prevents
-# Telegram's ImportBotAuthorizationRequest from running on every ephemeral Koyeb restart.
 BOT_SESSION_STRING = os.environ.get("BOT_SESSION_STRING", "").strip()
 if BOT_SESSION_STRING:
     bot = TelegramClient(StringSession(BOT_SESSION_STRING), API_ID, API_HASH)
@@ -142,7 +140,11 @@ async def progress_message(message, title, done, total, start_time):
     except Exception: pass
 
 async def resumable_download(client, message, output_path, total, progress_callback, retries=5):
-    """Download Telegram media directly from the message media and resume after interruptions."""
+    """Download media using the same bot client that received the message.
+
+    This avoids passing a bot file reference to a separate user session, which can
+    fail with FILE_REFERENCE_EXPIRED/invalid file-reference errors across DCs.
+    """
     request_size = 512 * 1024
     attempt = 0
     while True:
@@ -161,9 +163,7 @@ async def resumable_download(client, message, output_path, total, progress_callb
                     downloaded += len(chunk)
                     await progress_callback(downloaded, total)
             if downloaded < total:
-                raise RuntimeError(
-                    f"Telegram download ended early ({downloaded}/{total} bytes)"
-                )
+                raise RuntimeError(f"Telegram download ended early ({downloaded}/{total} bytes)")
             return
         except Exception as exc:
             attempt += 1
@@ -188,8 +188,6 @@ async def start(event):
 async def media(event):
     uid = event.sender_id; await upsert_user(uid, event.sender.username, event.sender.first_name)
     if not allowed(uid): return await event.reply("❌ You are not authorized to use this encoder.")
-    if user_client is None:
-        return await event.reply("❌ SESSION_STRING is not configured. Add a Telegram user SESSION_STRING to enable reliable cross-DC file downloads.")
     size = event.file.size or 0
     if size > 2 * 1024**3: return await event.reply("❌ This deployment is configured for files up to about 2 GB.")
     name = event.file.name or f"input_{event.id}.mkv"; safe = os.path.basename(name).replace("/", "_")
@@ -206,17 +204,9 @@ async def media(event):
                 if now - last_download_update < 2 and current < total: return
                 last_download_update = now; await progress_message(status, "📥 DOWNLOADING", current, total, download_started)
 
-            # The bot already received the complete Telegram message/media object.
-            # Pass that object directly to the user client instead of asking the user
-            # session to look up the message again by chat_id. This fixes private-chat
-            # and cross-DC cases where get_messages() returns None.
-            await resumable_download(
-                user_client,
-                event.message,
-                inp,
-                size,
-                download_progress,
-            )
+            # Use the bot's own MTProto connection for the download. The bot already
+            # has the valid media/file reference from the incoming message.
+            await resumable_download(bot, event.message, inp, size, download_progress)
             await progress_message(status, "📥 DOWNLOAD COMPLETE", size, size, download_started)
             await update_job(job_id, status="encoding"); encode_started = time.monotonic()
             async def encode_progress(percent, current_seconds, duration, remaining):
@@ -251,11 +241,14 @@ async def main():
         log.error("Telegram bot authorization is rate-limited for %s seconds. Configure BOT_SESSION_STRING after the cooldown to prevent repeated authorization on Koyeb restarts.", exc.seconds)
         await health_runner.cleanup()
         raise
-    if user_client is not None: await user_client.start()
+    if user_client is not None:
+        await user_client.start()
     log.info("Bot started")
-    try: await bot.run_until_disconnected()
+    try:
+        await bot.run_until_disconnected()
     finally:
-        if user_client is not None: await user_client.disconnect()
+        if user_client is not None:
+            await user_client.disconnect()
         await bot.disconnect()
         await health_runner.cleanup()
 
