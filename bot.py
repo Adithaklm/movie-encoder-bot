@@ -8,7 +8,7 @@ from pathlib import Path
 from aiohttp import web
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, AuthKeyDuplicatedError
 
 from config import *
 from database import init_db, upsert_user, create_job, update_job, get_settings, update_settings, reset_settings
@@ -273,9 +273,6 @@ async def media(event):
                 last_download_update = now
                 await progress_message(status, "📥 DOWNLOADING", current, total, download_started)
 
-            # The bot client received this message, so use that same client for
-            # the media transfer. Do not pass the bot message/file reference to a
-            # separate user session.
             await download_media_with_retry(bot, event.message, inp, size, download_progress)
             await progress_message(status, "📥 DOWNLOAD COMPLETE", size, size, download_started)
 
@@ -360,7 +357,16 @@ async def main():
         raise
 
     if user_client is not None:
-        await user_client.start()
+        try:
+            await user_client.start()
+        except AuthKeyDuplicatedError:
+            log.error(
+                "SESSION_STRING is already being used from another IP/device. "
+                "The bot will continue running without the user session. "
+                "Stop the other instance using this SESSION_STRING before retrying user-session features."
+            )
+            await user_client.disconnect()
+            user_client = None
 
     log.info("Bot started")
     try:
