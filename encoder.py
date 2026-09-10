@@ -55,7 +55,9 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
     audio_channels = settings.get("audio_channels", "")
     video_filter = settings.get("video_filter", "")
     extra_args = settings.get("extra_args", "")
-    threads = str(settings.get("threads", "1") or "1")
+
+    # Force a single FFmpeg thread to keep CPU/RAM usage low.
+    threads = "1"
 
     cmd = [
         FFMPEG,
@@ -74,10 +76,9 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
     if preset:
         cmd += ["-preset", preset]
 
-    # Keep x265's internal worker pools small on low-memory Koyeb instances.
-    # -threads alone does not fully control x265's internal parallelism.
-    if video_codec.lower() in {"libx265", "hevc", "hevc_nvenc"} and video_codec.lower() == "libx265":
-        cmd += ["-x265-params", "pools=1:frame-threads=1"]
+    # Keep x265 internal parallelism as low as possible for small-memory hosts.
+    if video_codec.lower() == "libx265":
+        cmd += ["-x265-params", "pools=1:frame-threads=1:wpp=0"]
 
     if pixel_format:
         cmd += ["-pix_fmt", pixel_format]
@@ -149,10 +150,9 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
         details = "\n".join(stderr_lines[-20:])
         if code == -9:
             raise RuntimeError(
-                "FFmpeg was killed by the system (SIGKILL, exit -9), usually because "
-                "the instance ran out of RAM. x265 is memory-intensive; this build "
-                "limits FFmpeg/x265 parallelism to 1 thread. If it still fails, use "
-                "a larger-memory Koyeb instance or a normal-duration source file.\n" + details
+                "FFmpeg was killed by the system (SIGKILL, exit -9). "
+                "CPU/RAM usage is already restricted to 1 thread. "
+                "Try a larger-memory Koyeb instance or a normal-duration source.\n" + details
             )
         raise RuntimeError(f"FFmpeg exited with code {code}\n{details}")
     if progress_callback:
