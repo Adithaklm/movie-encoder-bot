@@ -45,9 +45,9 @@ async def get_duration(input_path: str) -> float:
 
 async def encode_file(input_path: str, output_path: str, settings: dict, progress_callback=None):
     duration = await get_duration(input_path)
-    video_codec = settings.get("video_codec", "libx264")
+    video_codec = settings.get("video_codec", "libx265")
     crf = settings.get("crf", "23")
-    preset = settings.get("preset", "veryfast")
+    preset = settings.get("preset", "medium")
     video_bitrate = settings.get("video_bitrate", "")
     pixel_format = settings.get("pixel_format", "yuv420p")
     audio_codec = settings.get("audio_codec", "aac")
@@ -58,7 +58,12 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
     threads = str(settings.get("threads", "1") or "1")
 
     cmd = [
-        FFMPEG, "-y", "-threads", threads, "-i", input_path,
+        FFMPEG,
+        "-y",
+        "-threads", threads,
+        "-filter_threads", "1",
+        "-filter_complex_threads", "1",
+        "-i", input_path,
         "-map", "0:v:0", "-map", "0:a?",
         "-c:v", video_codec,
     ]
@@ -68,6 +73,12 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
         cmd += ["-crf", crf]
     if preset:
         cmd += ["-preset", preset]
+
+    # Keep x265's internal worker pools small on low-memory Koyeb instances.
+    # -threads alone does not fully control x265's internal parallelism.
+    if video_codec.lower() in {"libx265", "hevc", "hevc_nvenc"} and video_codec.lower() == "libx265":
+        cmd += ["-x265-params", "pools=1:frame-threads=1"]
+
     if pixel_format:
         cmd += ["-pix_fmt", pixel_format]
     if video_filter:
@@ -139,8 +150,9 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
         if code == -9:
             raise RuntimeError(
                 "FFmpeg was killed by the system (SIGKILL, exit -9), usually because "
-                "the instance ran out of RAM. Reduce FFmpeg threads/preset or use a "
-                "larger-memory Koyeb instance.\n" + details
+                "the instance ran out of RAM. x265 is memory-intensive; this build "
+                "limits FFmpeg/x265 parallelism to 1 thread. If it still fails, use "
+                "a larger-memory Koyeb instance or a normal-duration source file.\n" + details
             )
         raise RuntimeError(f"FFmpeg exited with code {code}\n{details}")
     if progress_callback:
