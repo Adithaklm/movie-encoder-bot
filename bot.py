@@ -141,6 +141,44 @@ async def progress_message(message, title, done, total, start_time):
     try: await message.edit(f"{title}\n[{bar}] {percent:.1f}%\n{fmt_bytes(done)} / {fmt_bytes(total)}\n⚡ {fmt_bytes(int(speed))}/s\n⏱️ ETA: {fmt_time(remaining)}")
     except Exception: pass
 
+async def resumable_download(client, message, output_path, total, progress_callback, retries=5):
+    """Download Telegram media directly from the message media and resume after interruptions."""
+    request_size = 512 * 1024
+    attempt = 0
+    while True:
+        downloaded = output_path.stat().st_size if output_path.exists() else 0
+        if downloaded >= total:
+            return
+        try:
+            mode = "ab" if downloaded else "wb"
+            with open(output_path, mode) as handle:
+                async for chunk in client.iter_download(
+                    message,
+                    offset=downloaded,
+                    request_size=request_size,
+                ):
+                    handle.write(chunk)
+                    downloaded += len(chunk)
+                    await progress_callback(downloaded, total)
+            if downloaded < total:
+                raise RuntimeError(
+                    f"Telegram download ended early ({downloaded}/{total} bytes)"
+                )
+            return
+        except Exception as exc:
+            attempt += 1
+            if attempt > retries:
+                raise RuntimeError(
+                    f"Telegram download failed after {retries} retries at "
+                    f"{fmt_bytes(downloaded)} / {fmt_bytes(total)}: {exc}"
+                ) from exc
+            delay = min(5 * attempt, 30)
+            log.warning(
+                "Download interrupted at %s/%s; retry %s/%s in %ss: %s",
+                fmt_bytes(downloaded), fmt_bytes(total), attempt, retries, delay, exc,
+            )
+            await asyncio.sleep(delay)
+
 @bot.on(events.NewMessage(pattern=r"^/start$"))
 async def start(event):
     await upsert_user(event.sender_id, event.sender.username, event.sender.first_name)
@@ -167,9 +205,18 @@ async def media(event):
                 now = time.monotonic()
                 if now - last_download_update < 2 and current < total: return
                 last_download_update = now; await progress_message(status, "📥 DOWNLOADING", current, total, download_started)
-            source = await user_client.get_messages(event.chat_id, ids=event.id)
-            if not source: raise RuntimeError("The user session could not access the incoming Telegram message.")
-            await user_client.download_media(source, file=str(inp), progress_callback=download_progress)
+
+            # The bot already received the complete Telegram message/media object.
+            # Pass that object directly to the user client instead of asking the user
+            # session to look up the message again by chat_id. This fixes private-chat
+            # and cross-DC cases where get_messages() returns None.
+            await resumable_download(
+                user_client,
+                event.message,
+                inp,
+                size,
+                download_progress,
+            )
             await progress_message(status, "📥 DOWNLOAD COMPLETE", size, size, download_started)
             await update_job(job_id, status="encoding"); encode_started = time.monotonic()
             async def encode_progress(percent, current_seconds, duration, remaining):
