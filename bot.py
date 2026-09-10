@@ -192,17 +192,10 @@ async def progress_message(message, title, done, total, start_time):
 
 
 async def download_media_with_retry(client, message, output_path, total, progress_callback, retries=3):
-    """Use Telethon's normal download_media path and retry cleanly.
-
-    The previous implementation used iter_download() directly. That triggered a
-    process exit on Koyeb while Telethon was exporting a borrowed sender for the
-    media DC. Standard download_media() handles Telegram's media transfer flow.
-    """
     for attempt in range(1, retries + 1):
         try:
             if output_path.exists():
                 output_path.unlink()
-
             last_report = 0.0
 
             async def callback(current, total_size):
@@ -215,7 +208,6 @@ async def download_media_with_retry(client, message, output_path, total, progres
             result = await client.download_media(message, file=str(output_path), progress_callback=callback)
             if not result or not output_path.exists():
                 raise RuntimeError("Telegram returned no downloaded file")
-
             downloaded = output_path.stat().st_size
             if total and downloaded != total:
                 raise RuntimeError(f"Downloaded size mismatch: {downloaded}/{total} bytes")
@@ -225,9 +217,7 @@ async def download_media_with_retry(client, message, output_path, total, progres
         except BaseException as exc:
             log.exception("Telegram media download attempt %s/%s failed", attempt, retries)
             if attempt >= retries:
-                raise RuntimeError(
-                    f"Telegram download failed after {retries} attempts: {type(exc).__name__}: {exc}"
-                ) from exc
+                raise RuntimeError(f"Telegram download failed after {retries} attempts: {type(exc).__name__}: {exc}") from exc
             await asyncio.sleep(min(5 * attempt, 15))
 
 
@@ -243,11 +233,9 @@ async def media(event):
     await upsert_user(uid, event.sender.username, event.sender.first_name)
     if not allowed(uid):
         return await event.reply("❌ You are not authorized to use this encoder.")
-
     size = event.file.size or 0
     if size > 2 * 1024**3:
         return await event.reply("❌ This deployment is configured for files up to about 2 GB.")
-
     name = event.file.name or f"input_{event.id}.mkv"
     safe = os.path.basename(name).replace("/", "_")
     work = Path(DOWNLOAD_DIR) / str(uid) / str(event.id)
@@ -258,7 +246,6 @@ async def media(event):
     out = work / f"{Path(safe).stem}.encoded.{output_ext}"
     status = await event.reply("📥 DOWNLOADING\n[░░░░░░░░░░░░] 0.0%")
     job_id = await create_job(uid, safe, size)
-
     try:
         async with semaphore:
             await update_job(job_id, status="downloading")
@@ -275,7 +262,6 @@ async def media(event):
 
             await download_media_with_retry(bot, event.message, inp, size, download_progress)
             await progress_message(status, "📥 DOWNLOAD COMPLETE", size, size, download_started)
-
             await update_job(job_id, status="encoding")
             encode_started = time.monotonic()
 
@@ -285,11 +271,7 @@ async def media(event):
                 filled = int(12 * percent / 100)
                 bar = "█" * filled + "░" * (12 - filled)
                 try:
-                    await status.edit(
-                        f"⚙️ ENCODING\n[{bar}] {percent:.1f}%\n"
-                        f"🎞️ {fmt_time(current_seconds)} / {fmt_time(duration)}\n"
-                        f"⚡ {speed:.2f}x\n⏱️ ETA: {fmt_time(remaining)}"
-                    )
+                    await status.edit(f"⚙️ ENCODING\n[{bar}] {percent:.1f}%\n🎞️ {fmt_time(current_seconds)} / {fmt_time(duration)}\n⚡ {speed:.2f}x\n⏱️ ETA: {fmt_time(remaining)}")
                 except Exception:
                     pass
 
@@ -301,17 +283,11 @@ async def media(event):
             async def upload_progress(current, total):
                 await progress_message(status, "📤 UPLOADING", current, total, upload_started)
 
-            await bot.send_file(
-                event.chat_id,
-                str(out),
-                caption=f"🎬 {out.name}\n📦 {fmt_bytes(output_size)}",
-                progress_callback=upload_progress,
-            )
+            await bot.send_file(event.chat_id, str(out), caption=f"🎬 {out.name}\n📦 {fmt_bytes(output_size)}", progress_callback=upload_progress)
             await update_job(job_id, status="completed")
             await status.edit(f"✅ COMPLETE\n📦 {fmt_bytes(output_size)}")
             await asyncio.sleep(3)
             await status.delete()
-
     except Exception as exc:
         log.exception("Job failed")
         await update_job(job_id, status="failed", error=str(exc)[:500])
@@ -340,6 +316,7 @@ async def start_health_server():
 
 
 async def main():
+    global user_client
     await init_db()
     health_runner = await start_health_server()
     try:
@@ -348,11 +325,7 @@ async def main():
         else:
             await bot.start(bot_token=BOT_TOKEN)
     except FloodWaitError as exc:
-        log.error(
-            "Telegram bot authorization is rate-limited for %s seconds. "
-            "Configure BOT_SESSION_STRING after the cooldown to prevent repeated authorization on Koyeb restarts.",
-            exc.seconds,
-        )
+        log.error("Telegram bot authorization is rate-limited for %s seconds. Configure BOT_SESSION_STRING after the cooldown to prevent repeated authorization on Koyeb restarts.", exc.seconds)
         await health_runner.cleanup()
         raise
 
@@ -360,11 +333,7 @@ async def main():
         try:
             await user_client.start()
         except AuthKeyDuplicatedError:
-            log.error(
-                "SESSION_STRING is already being used from another IP/device. "
-                "The bot will continue running without the user session. "
-                "Stop the other instance using this SESSION_STRING before retrying user-session features."
-            )
+            log.error("SESSION_STRING is already being used from another IP/device. The bot will continue running without the user session. Stop the other instance using this SESSION_STRING before retrying user-session features.")
             await user_client.disconnect()
             user_client = None
 
