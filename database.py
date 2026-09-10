@@ -10,7 +10,7 @@ jobs = db.jobs
 DEFAULT_SETTINGS = {
     "video_codec": "libx265",
     "crf": "23",
-    "preset": "medium",
+    "preset": "ultrafast",
     "video_bitrate": "",
     "pixel_format": "yuv420p",
     "audio_codec": "aac",
