@@ -55,9 +55,10 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
     audio_channels = settings.get("audio_channels", "")
     video_filter = settings.get("video_filter", "")
     extra_args = settings.get("extra_args", "")
+    threads = str(settings.get("threads", "1") or "1")
 
     cmd = [
-        FFMPEG, "-y", "-i", input_path,
+        FFMPEG, "-y", "-threads", threads, "-i", input_path,
         "-map", "0:v:0", "-map", "0:a?",
         "-c:v", video_codec,
     ]
@@ -87,10 +88,18 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
     started = time.monotonic()
     last_update = 0.0
     current_seconds = 0.0
+    stderr_lines = []
 
     async def drain_stderr():
-        while await process.stderr.readline():
-            pass
+        while True:
+            line = await process.stderr.readline()
+            if not line:
+                break
+            text = line.decode(errors="replace").strip()
+            if text:
+                stderr_lines.append(text)
+                if len(stderr_lines) > 80:
+                    del stderr_lines[:-80]
 
     stderr_task = asyncio.create_task(drain_stderr())
     try:
@@ -126,7 +135,14 @@ async def encode_file(input_path: str, output_path: str, settings: dict, progres
             stderr_task.cancel()
 
     if code != 0:
-        raise RuntimeError(f"FFmpeg exited with code {code}")
+        details = "\n".join(stderr_lines[-20:])
+        if code == -9:
+            raise RuntimeError(
+                "FFmpeg was killed by the system (SIGKILL, exit -9), usually because "
+                "the instance ran out of RAM. Reduce FFmpeg threads/preset or use a "
+                "larger-memory Koyeb instance.\n" + details
+            )
+        raise RuntimeError(f"FFmpeg exited with code {code}\n{details}")
     if progress_callback:
         await progress_callback(100, duration, duration, 0)
     return Path(output_path)
