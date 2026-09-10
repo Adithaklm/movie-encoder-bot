@@ -12,10 +12,10 @@ AUTHORIZED_USERS.add(OWNER_ID)
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/tmp/encoder")
 
 # Default FFmpeg settings. Users can override these from the bot's Settings menu.
-VIDEO_CODEC = os.environ.get("VIDEO_CODEC", "libx264")
+VIDEO_CODEC = os.environ.get("VIDEO_CODEC", "libx265")
 AUDIO_CODEC = os.environ.get("AUDIO_CODEC", "aac")
 CRF = os.environ.get("CRF", "23")
-PRESET = os.environ.get("PRESET", "veryfast")
+PRESET = os.environ.get("PRESET", "medium")
 AUDIO_BITRATE = os.environ.get("AUDIO_BITRATE", "128k")
 VIDEO_BITRATE = os.environ.get("VIDEO_BITRATE", "")
 PIXEL_FORMAT = os.environ.get("PIXEL_FORMAT", "yuv420p")
@@ -24,4 +24,5 @@ VIDEO_FILTER = os.environ.get("VIDEO_FILTER", "")
 AUDIO_CHANNELS = os.environ.get("AUDIO_CHANNELS", "")
 EXTRA_FFMPEG_ARGS = os.environ.get("EXTRA_FFMPEG_ARGS", "")
 
+# Keep only one encode running at a time to reduce RAM pressure on small instances.
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
