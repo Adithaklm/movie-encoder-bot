@@ -8,9 +8,9 @@ users = db.users
 jobs = db.jobs
 
 DEFAULT_SETTINGS = {
-    "video_codec": "libx264",
+    "video_codec": "libx265",
     "crf": "23",
-    "preset": "veryfast",
+    "preset": "medium",
     "video_bitrate": "",
     "pixel_format": "yuv420p",
     "audio_codec": "aac",
